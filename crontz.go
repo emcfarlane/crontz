@@ -1,4 +1,4 @@
-package main
+package crontz
 
 import (
 	"fmt"
@@ -9,10 +9,13 @@ import (
 
 // Crontab is a simplified implementation that only supports matching against
 // times.
-type Crontab [5]map[int]bool
+type Crontab [5]uint64
 
 // bounds for minute, hour, day, month and weekday.
-var bounds = [5]int{59, 23, 31, 12, 6}
+var (
+	loBounds = [5]int{0, 0, 1, 1, 0}
+	hiBounds = [5]int{59, 23, 31, 12, 6}
+)
 
 // ParseCron to a set of accepted time values, only parses numeric values.
 func ParseCron(exp string) (ct Crontab, err error) {
@@ -22,9 +25,8 @@ func ParseCron(exp string) (ct Crontab, err error) {
 	}
 
 	for i, field := range fields {
-		ct[i] = make(map[int]bool)
 		for _, part := range strings.Split(field, ",") {
-			loN, hiN, stepN := 0, bounds[i], 1
+			loN, hiN, stepN := loBounds[i], hiBounds[i], 1
 
 			switch step := strings.Split(part, "/"); {
 			case len(step) == 2:
@@ -59,8 +61,11 @@ func ParseCron(exp string) (ct Crontab, err error) {
 				return ct, fmt.Errorf("invalid cron %s part %s", exp, part)
 			}
 
-			for n := loN; n <= hiN && n <= bounds[i]; n += stepN {
-				ct[i][n] = true
+			if loN < loBounds[i] || hiN > hiBounds[i] {
+				return ct, fmt.Errorf("invalid cron %s part %s", exp, part)
+			}
+			for n := loN; n <= hiN; n += stepN {
+				ct[i] |= 1 << uint(n)
 			}
 		}
 	}
@@ -94,17 +99,9 @@ func (ct Crontab) Matches(t time.Time) bool {
 			}
 		}
 	}
-
-	for i, val := range []int{
-		t.Minute(),
-		t.Hour(),
-		t.Day(),
-		int(t.Month()),
-		int(t.Weekday()),
-	} {
-		if ct[i] == nil || !ct[i][val] {
-			return false
-		}
-	}
-	return true
+	return ct[0]&(1<<uint(t.Minute())) != 0 && // 0-59
+		ct[1]&(1<<uint(t.Hour())) != 0 && // 0-23
+		ct[2]&(1<<uint(t.Day())) != 0 && // 1-31
+		ct[3]&(1<<uint(t.Month())) != 0 && // 1-12
+		ct[4]&(1<<uint(t.Weekday())) != 0 // 0-6
 }
